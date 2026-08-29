@@ -380,6 +380,23 @@
   var muted = false;
   var complete = false;
   var audioCtx = null;
+  var sessionId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+  var hasStarted = false;
+
+  function recordEvent(eventType, phase, elapsedSeconds) {
+    fetch('http://127.0.0.1:8000/api/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        event_type: eventType,
+        phase: phase,
+        cycle: phases[phaseIndex].cycle + 1,
+        duration_seconds: phases[phaseIndex].dur,
+        elapsed_seconds: elapsedSeconds
+      })
+    }).catch(function () {});
+  }
 
   var ringEl = document.getElementById('progressRing');
   var timeEl = document.getElementById('timeDisplay');
@@ -522,8 +539,14 @@
     updateCycleTrack();
   }
 
-  function advancePhase() {
+  function advancePhase(skipped) {
     var finishedType = phases[phaseIndex].type;
+    var finishedPhase = phases[phaseIndex];
+    var elapsed = Math.min(finishedPhase.dur, Math.max(0, finishedPhase.dur - remaining));
+    recordEvent(skipped ? 'phase_skipped' : 'phase_completed', finishedType, elapsed);
+    if (phaseIndex === phases.length - 1) {
+      recordEvent('session_completed', finishedType, elapsed);
+    }
     phaseIndex++;
     if (phaseIndex >= phases.length) {
       complete = true;
@@ -543,7 +566,7 @@
   function tick() {
     remaining--;
     if (remaining < 0) {
-      advancePhase();
+      advancePhase(false);
     } else {
       render();
     }
@@ -555,6 +578,8 @@
     }
     if (running) return;
     running = true;
+    recordEvent(hasStarted ? 'session_resumed' : 'session_started', phases[phaseIndex].type, phases[phaseIndex].dur - remaining);
+    hasStarted = true;
     statusLine.textContent = '';
     timerId = setInterval(tick, 1000);
     render();
@@ -563,15 +588,19 @@
   function pause() {
     running = false;
     clearInterval(timerId);
+    recordEvent('session_paused', phases[phaseIndex].type, phases[phaseIndex].dur - remaining);
     render();
   }
 
   function resetAll() {
+    if (hasStarted && !complete) recordEvent('session_reset', phases[phaseIndex].type, phases[phaseIndex].dur - remaining);
     clearInterval(timerId);
     running = false;
     complete = false;
     phaseIndex = 0;
     remaining = phases[0].dur;
+    sessionId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    hasStarted = false;
     statusLine.textContent = '';
     render();
   }
@@ -590,7 +619,7 @@
     if (complete) return;
     remaining = 0;
     if (!running) render();
-    advancePhase();
+    advancePhase(true);
   });
 
   muteBtn.addEventListener('click', function () {

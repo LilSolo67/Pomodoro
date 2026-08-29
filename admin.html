@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pomodoro — Admin</title>
+<style>
+  :root {
+    --ground: #1a1f1a;
+    --panel: #222820;
+    --panel-raised: #2b3227;
+    --ink: #f1ece0;
+    --ink-dim: #93998a;
+    --ink-faint: #5d6356;
+    --work: #e2502f;
+    --break: #74a67f;
+    --brass: #c9a24b;
+    --brass-dim: #6b5a30;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    padding: 2.5rem 1.5rem 4rem;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 {
+    font-size: 1.5rem;
+    letter-spacing: 0.02em;
+    margin: 0 0 0.25rem;
+  }
+  .sub {
+    color: var(--ink-dim);
+    font-size: 0.9rem;
+    margin: 0 0 2rem;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 2.5rem;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--brass-dim);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+  }
+  .card .label {
+    color: var(--ink-dim);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.4rem;
+  }
+  .card .value {
+    font-size: 1.7rem;
+    font-weight: 600;
+    color: var(--brass);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--brass-dim);
+    border-radius: 10px;
+    overflow: hidden;
+    font-size: 0.9rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.6rem 0.9rem;
+    border-bottom: 1px solid var(--panel-raised);
+  }
+  th {
+    color: var(--ink-dim);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+  }
+  tr:last-child td { border-bottom: none; }
+  .status {
+    color: var(--ink-faint);
+    font-size: 0.85rem;
+    margin-top: 1rem;
+  }
+  .error { color: var(--work); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Pomodoro — Admin</h1>
+    <p class="sub">Timer analytics dashboard</p>
+
+    <div class="cards" id="summary-cards">
+      <div class="card"><div class="label">Sessions today</div><div class="value">—</div></div>
+      <div class="card"><div class="label">Completed sessions</div><div class="value">—</div></div>
+      <div class="card"><div class="label">Work phases done</div><div class="value">—</div></div>
+      <div class="card"><div class="label">Focus time</div><div class="value">—</div></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Sessions</th><th>Work phases</th><th>Focus time</th></tr>
+      </thead>
+      <tbody id="daily-rows">
+        <tr><td colspan="4">Loading…</td></tr>
+      </tbody>
+    </table>
+
+    <p class="status" id="status"></p>
+  </div>
+
+  <script>
+    function formatDuration(seconds) {
+      seconds = seconds || 0;
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (h > 0) return h + 'h ' + m + 'm';
+      return m + 'm';
+    }
+
+    async function loadDashboard() {
+      const statusEl = document.getElementById('status');
+      try {
+        const [summaryRes, dailyRes] = await Promise.all([
+          fetch('/api/analytics/summary', { credentials: 'same-origin' }),
+          fetch('/api/analytics/daily?days=14', { credentials: 'same-origin' }),
+        ]);
+
+        if (summaryRes.status === 401 || dailyRes.status === 401) {
+          statusEl.textContent = 'Authentication required — reload and sign in.';
+          statusEl.classList.add('error');
+          return;
+        }
+        if (!summaryRes.ok || !dailyRes.ok) {
+          throw new Error('Server returned an error');
+        }
+
+        const summary = await summaryRes.json();
+        const daily = await dailyRes.json();
+
+        const cards = document.querySelectorAll('#summary-cards .value');
+        cards[0].textContent = summary.sessions;
+        cards[1].textContent = summary.completed_sessions;
+        cards[2].textContent = summary.completed_work_phases;
+        cards[3].textContent = formatDuration(summary.focus_seconds);
+
+        const rowsEl = document.getElementById('daily-rows');
+        if (!daily.length) {
+          rowsEl.innerHTML = '<tr><td colspan="4">No data yet.</td></tr>';
+        } else {
+          rowsEl.innerHTML = daily.map(function (row) {
+            return '<tr>' +
+              '<td>' + row.date + '</td>' +
+              '<td>' + row.sessions + '</td>' +
+              '<td>' + row.completed_work_phases + '</td>' +
+              '<td>' + formatDuration(row.focus_seconds) + '</td>' +
+              '</tr>';
+          }).join('');
+        }
+
+        statusEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
+        statusEl.classList.remove('error');
+      } catch (err) {
+        statusEl.textContent = 'Failed to load analytics: ' + err.message;
+        statusEl.classList.add('error');
+      }
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>
